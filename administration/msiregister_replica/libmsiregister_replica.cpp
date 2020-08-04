@@ -108,22 +108,22 @@ int msiregister_replica(
     printf("%s:%d (%s) [dst_child_resc=%s]\n", __FILE__, __LINE__, __FUNCTION__, dst_child_resc.c_str());
 
     // get resc_id
-	std::string query = "select RESC_ID where RESC_NAME = '" + dst_child_resc + "'";
+    std::string query = "select RESC_ID where RESC_NAME = '" + dst_child_resc + "'";
 
     rodsLong_t resc_id = 0;
-	irods::experimental::query_builder qb;
+    irods::experimental::query_builder qb;
 
-    //rsComm_t& rsComm = *(_rei->rsComm);
-	for (const auto& row : qb.build(*_rei->rsComm, query)) {
+    for (const auto& row : qb.build(*_rei->rsComm, query)) {
         try {
             resc_id = boost::lexical_cast<rodsLong_t>(row[0]);
         } catch (boost::bad_lexical_cast & e) {
             cout << "could not lexical cast resc_id to rodsLong_t" << endl;
             return SYS_INVALID_INPUT_PARAM;
         }
-	}
+    }
     printf("%s:%d (%s) [resc_id=%llu]\n", __FILE__, __LINE__, __FUNCTION__, resc_id);
 
+    // get data_id, data_size, and max_repl_num
     boost::filesystem::path p(logical_path);
     std::string collection_name = p.parent_path().string();
     std::string data_name = p.filename().string();
@@ -133,7 +133,7 @@ int msiregister_replica(
     int max_repl_num = 0;
     rodsLong_t data_id = 0;
     rodsLong_t data_size = 0;
-	for (const auto& row : qb.build(*_rei->rsComm, query)) {
+    for (const auto& row : qb.build(*_rei->rsComm, query)) {
         try {
             int repl_num = boost::lexical_cast<int>(row[2]);
             if (repl_num > max_repl_num) {
@@ -147,7 +147,7 @@ int msiregister_replica(
             cout << e.what() << endl;
             return SYS_INVALID_INPUT_PARAM;
         }
-	}
+    }
 
     printf("%s:%d (%s) [data_id=%lld][data_size=%llu][max_repl_num=%d]\n", __FILE__, __LINE__, __FUNCTION__, data_id, data_size, max_repl_num);
 
