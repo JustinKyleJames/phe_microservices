@@ -95,7 +95,8 @@ int msiregister_replica(
         return SYS_INVALID_INPUT_PARAM;
     }
 
-    printf("%s:%d (%s) [src_resource_hierarchy=%s][dst_resource_hierarchy=%s][physical_path=%s][logical_path=%s]\n", __FILE__, __LINE__, __FUNCTION__, src_resource_hierarchy, dst_resource_hierarchy, physical_path, logical_path);
+    //printf("%s:%d (%s) [src_resource_hierarchy=%s][dst_resource_hierarchy=%s][physical_path=%s][logical_path=%s]\n",
+    //__FILE__, __LINE__, __FUNCTION__, src_resource_hierarchy, dst_resource_hierarchy, physical_path, logical_path);
 
     // get child resources
     std::string dst_child_resc;
@@ -105,7 +106,7 @@ int msiregister_replica(
     std::string src_child_resc;
     parser.set_string(src_resource_hierarchy);
     parser.last_resc(src_child_resc);
-    printf("%s:%d (%s) [dst_child_resc=%s]\n", __FILE__, __LINE__, __FUNCTION__, dst_child_resc.c_str());
+    //printf("%s:%d (%s) [dst_child_resc=%s]\n", __FILE__, __LINE__, __FUNCTION__, dst_child_resc.c_str());
 
     // get resc_id
     std::string query = "select RESC_ID where RESC_NAME = '" + dst_child_resc + "'";
@@ -121,7 +122,7 @@ int msiregister_replica(
             return SYS_INVALID_INPUT_PARAM;
         }
     }
-    printf("%s:%d (%s) [resc_id=%llu]\n", __FILE__, __LINE__, __FUNCTION__, resc_id);
+    //printf("%s:%d (%s) [resc_id=%llu]\n", __FILE__, __LINE__, __FUNCTION__, resc_id);
 
     // get data_id, data_size, and max_repl_num
     boost::filesystem::path p(logical_path);
@@ -149,7 +150,7 @@ int msiregister_replica(
         }
     }
 
-    printf("%s:%d (%s) [data_id=%lld][data_size=%llu][max_repl_num=%d]\n", __FILE__, __LINE__, __FUNCTION__, data_id, data_size, max_repl_num);
+    //printf("%s:%d (%s) [data_id=%lld][data_size=%llu][max_repl_num=%d]\n",__FILE__, __LINE__, __FUNCTION__, data_id, data_size, max_repl_num);
 
     // set the destination information
     dataObjInfo_t dst_data_obj;
@@ -184,11 +185,14 @@ int msiregister_replica(
     reg_inp.destDataObjInfo = &dst_data_obj;
     addKeyVal(&reg_inp.condInput, IN_PDMO_KW, dst_resource_hierarchy);
 
-    int status = rsRegReplica( _rei->rsComm, &reg_inp );
-    if( status < 0 ) {
+    try {
+        int status = rsRegReplica( _rei->rsComm, &reg_inp );
+        //printf("%s:%d (%s) rsRegReplica returned: %d", __FILE__, __LINE__, __FUNCTION__, status);
         return status;
+    } catch (irods::exception& e) {
+        //printf("%s:%d (%s) rsRegReplica returned an error: %s", __FILE__, __LINE__, __FUNCTION__, e.what());
+        return e.code();
     }
-
 
     return 0;
 
