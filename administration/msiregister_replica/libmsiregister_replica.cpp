@@ -184,6 +184,7 @@ int msiregister_replica(
     reg_inp.srcDataObjInfo  = &src_data_obj;
     reg_inp.destDataObjInfo = &dst_data_obj;
     addKeyVal(&reg_inp.condInput, IN_PDMO_KW, dst_resource_hierarchy);
+    addKeyVal(&reg_inp.condInput, ADMIN_KW, "");
 
     try {
         int status = rsRegReplica( _rei->rsComm, &reg_inp );
