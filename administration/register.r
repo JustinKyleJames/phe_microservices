@@ -1,31 +1,50 @@
 register {
 
-    writeLine("stdout", "*logical_path")
+    *src_resc_hier = 'defresc;resc1'
+    *dst_resc_hier = 'defresc;resc2'
 
-    #*src_resc_hier = 'wosResc1;wosArchiveResc1'
-    #*dst_resc_hier = 'wosResc2;wosArchiveResc2'
-    *src_resc_hier = 'replresc;resc2'
-    *dst_resc_hier = 'replresc;resc1'
-    *coll_name = trimr(*logical_path, '/')
-    *dir_parts = split(*logical_path, '/')
-    *data_name = elem(*dir_parts, size(*dir_parts)-1)
-
-    # get the leaf resource name
+    # get the src leaf resource name
     *resc_hier_parts = split(*src_resc_hier, ';')
     *src_resc_name = elem(*resc_hier_parts, size(*resc_hier_parts) - 1)
 
-    *results = SELECT DATA_PATH WHERE COLL_NAME = '*coll_name' AND DATA_NAME = '*data_name' AND RESC_NAME = '*src_resc_name';
-    foreach (*row in *results) {
-        *phypath = *row.DATA_PATH
-    }
+    # get the dst leaf resource name
+    *resc_hier_parts = split(*dst_resc_hier, ';')
+    *dst_resc_name = elem(*resc_hier_parts, size(*resc_hier_parts) - 1)
 
-    *err = errormsg(msiregister_replica(*src_resc_hier, *dst_resc_hier, *phypath, "*coll_name/*data_name"), *msg)
-    if (*err == 0) {
-        writeLine("serverLog", "PHE_REGISTER *logical_path SUCCESS [*err]")
-    } else {
-        writeLine("serverLog", "PHE_REGISTER *logical_path ERROR [*err] - *msg")
+    # get all objects at src
+    *results = SELECT COLL_NAME, DATA_NAME where RESC_NAME = '*src_resc_name'
+    foreach (*row in *results) {
+
+        *coll_name = *row.COLL_NAME
+        *data_name = *row.DATA_NAME
+       
+        # determine if object from src is in dst 
+        *results2 = select COUNT(DATA_NAME) where COLL_NAME = '*coll_name' and DATA_NAME = '*data_name' and RESC_NAME = '*dst_resc_name'
+        foreach (*row2 in *results2) {
+            *count = *row2.DATA_NAME
+        }
+
+        if (*count == "0") {
+        
+            *results3 = SELECT DATA_PATH WHERE COLL_NAME = '*coll_name' AND DATA_NAME = '*data_name' AND RESC_NAME = '*src_resc_name';
+            foreach (*row3 in *results3) {
+                *phypath = *row3.DATA_PATH
+                writeLine("stdout",*phypath)
+            }
+       
+            writeLine("stdout", "msiregister_replica(*src_resc_hier, *dst_resc_hier, *phypath, *coll_name/*data_name)")
+            *err = errormsg(msiregister_replica(*src_resc_hier, *dst_resc_hier, *phypath, "*coll_name/*data_name"), *msg)
+
+            if (*err == 0) {
+                writeLine("serverLog", "DO_REGISTER *logical_path SUCCESS [*err]")
+            } else {
+                writeLine("serverLog", "DO_REGISTER *logical_path ERROR [*err] - *msg")
+            }
+
+        } else {
+            writeLine("stdout", "*coll_name/*data_name already registered. skip it.")
+        }
     }
 }
-INPUT *logical_path = '/tempZone/home/rods/foo'
 OUTPUT ruleExecOut
 
