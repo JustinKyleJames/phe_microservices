@@ -1,5 +1,5 @@
 /**
- * @file  libmsiregister_replica.cpp
+ * @file  register_replica.cpp
  *
  */
 
@@ -22,93 +22,32 @@
 #include <iostream>
 #include <vector>
 
-#include <register_replica.hpp>
-
 #include <boost/lexical_cast.hpp>
 
 
-int rsGenQuery(rsComm_t*, genQueryInp_t*, genQueryOut_t**);
-
-
-/**
- * \fn msiregister_replica(msParam_t* _resource_hierarchy, msParam_t* _physical_path, msParam_t* _logical_path, ruleExecInfo_t *rei)
- *
- * \brief   This microservice registers a replica
- *
- * \since 4.2.8
- *
- * \param[in] _src_resource_hierarchy - The semicolon delimited string designating the source replica's location
- * \param[in] _dst_resource_hierarchy - The semicolon delimited string designating the destination replica's location
- * \param[in] _physical_path - The physical path of the to-be-created replica
- * \param[in] _logical_path - The logical path of the dataObject to be replicated
- * \param[in,out] rei - The RuleExecInfo structure that is automatically
- *    handled by the rule engine. The user does not include rei as a
- *    parameter in the rule invocation.
- *
- * \DolVarDependence none
- * \DolVarModified none
- * \iCatAttrDependence none
- * \iCatAttrModified none
- * \sideeffect none
- *
- * \return integer
- * \retval 0
- * \pre none
- * \post none
- * \sa none
- **/
-int msiregister_replica(
-    msParam_t*      _src_resource_hierarchy,
-    msParam_t*      _dst_resource_hierarchy,
-    msParam_t*      _physical_path,
-    msParam_t*      _logical_path,
+int register_replica(
+    const std::string&      _src_resource_hierarchy,
+    const std::string&      _dst_resource_hierarchy,
+    const std::string&      _physical_path,
+    const std::string&      _logical_path,
     ruleExecInfo_t* _rei ) {
 
     using std::cout;
     using std::endl;
     using std::string;
 
-    char *src_resource_hierarchy = parseMspForStr( _src_resource_hierarchy );
-    if( !_src_resource_hierarchy ) {
-        cout << "msisync_to_archive - null _src_resc_hier parameter" << endl;
-        return SYS_INVALID_INPUT_PARAM;
-    }
-
-    char *dst_resource_hierarchy = parseMspForStr( _dst_resource_hierarchy );
-    if( !_dst_resource_hierarchy ) {
-        cout << "msisync_to_archive - null _dst_resc_hier parameter" << endl;
-        return SYS_INVALID_INPUT_PARAM;
-    }
-
-    char *physical_path = parseMspForStr( _physical_path );
-    if( !physical_path ) {
-        cout << "msisync_to_archive - null _physical_path parameter" << endl;
-        return SYS_INVALID_INPUT_PARAM;
-    }
-
-    char *logical_path = parseMspForStr( _logical_path );
-    if( !logical_path ) {
-        cout << "msisync_to_archive - null _logical_path parameter" << endl;
-        return SYS_INVALID_INPUT_PARAM;
-    }
-
     if( !_rei ) {
-        cout << "msisync_to_archive - null _rei parameter" << endl;
+        cout << "register_replica: null _rei parameter" << endl;
         return SYS_INVALID_INPUT_PARAM;
     }
 
-    return register_replica(src_resource_hierarchy, dst_resource_hierarchy, physical_path, logical_path, _rei);
-
-    //printf("%s:%d (%s) [src_resource_hierarchy=%s][dst_resource_hierarchy=%s][physical_path=%s][logical_path=%s]\n",
-    //__FILE__, __LINE__, __FUNCTION__, src_resource_hierarchy, dst_resource_hierarchy, physical_path, logical_path);
-/*
     // get child resources
     std::string dst_child_resc;
     irods::hierarchy_parser parser;
-    parser.set_string(dst_resource_hierarchy);
+    parser.set_string(_dst_resource_hierarchy.c_str());
     parser.last_resc(dst_child_resc);
     std::string src_child_resc;
-    parser.set_string(src_resource_hierarchy);
+    parser.set_string(_src_resource_hierarchy.c_str());
     parser.last_resc(src_child_resc);
     //printf("%s:%d (%s) [dst_child_resc=%s]\n", __FILE__, __LINE__, __FUNCTION__, dst_child_resc.c_str());
 
@@ -129,7 +68,7 @@ int msiregister_replica(
     //printf("%s:%d (%s) [resc_id=%llu]\n", __FILE__, __LINE__, __FUNCTION__, resc_id);
 
     // get data_id, data_size, and max_repl_num
-    boost::filesystem::path p(logical_path);
+    boost::filesystem::path p(_logical_path.c_str());
     std::string collection_name = p.parent_path().string();
     std::string data_name = p.filename().string();
     query = "select DATA_ID, DATA_SIZE, DATA_REPL_NUM, RESC_NAME where COLL_NAME = '" + collection_name +
@@ -160,13 +99,13 @@ int msiregister_replica(
     dataObjInfo_t dst_data_obj;
     bzero( &dst_data_obj, sizeof( dst_data_obj ) );
 
-    strncpy( dst_data_obj.objPath, logical_path, MAX_NAME_LEN );
+    strncpy( dst_data_obj.objPath, _logical_path.c_str(), MAX_NAME_LEN );
     strncpy( dst_data_obj.rescName, dst_child_resc.c_str(), NAME_LEN );
-    strncpy( dst_data_obj.rescHier, dst_resource_hierarchy, MAX_NAME_LEN );
+    strncpy( dst_data_obj.rescHier, _dst_resource_hierarchy.c_str(), MAX_NAME_LEN );
     strncpy( dst_data_obj.dataType, "generic", NAME_LEN );
 
     dst_data_obj.dataSize = data_size;
-    strncpy( dst_data_obj.filePath, physical_path, MAX_NAME_LEN );
+    strncpy( dst_data_obj.filePath, _physical_path.c_str(), MAX_NAME_LEN );
     dst_data_obj.replNum    = max_repl_num+1;
     dst_data_obj.rescId = resc_id;
     dst_data_obj.replStatus = 0;
@@ -178,8 +117,8 @@ int msiregister_replica(
     dataObjInfo_t src_data_obj;
     memcpy( &src_data_obj, &dst_data_obj, sizeof( dst_data_obj ) );
     src_data_obj.replNum = 0;
-    strncpy( src_data_obj.filePath, physical_path, MAX_NAME_LEN );
-    strncpy( src_data_obj.rescHier, src_resource_hierarchy,  MAX_NAME_LEN );
+    strncpy( src_data_obj.filePath, _physical_path.c_str(), MAX_NAME_LEN );
+    strncpy( src_data_obj.rescHier, _src_resource_hierarchy.c_str(),  MAX_NAME_LEN );
 
     // =-=-=-=-=-=-=-
     // repl to an existing copy
@@ -187,7 +126,7 @@ int msiregister_replica(
     bzero( &reg_inp, sizeof( reg_inp ) );
     reg_inp.srcDataObjInfo  = &src_data_obj;
     reg_inp.destDataObjInfo = &dst_data_obj;
-    addKeyVal(&reg_inp.condInput, IN_PDMO_KW, dst_resource_hierarchy);
+    addKeyVal(&reg_inp.condInput, IN_PDMO_KW, _dst_resource_hierarchy.c_str());
     addKeyVal(&reg_inp.condInput, ADMIN_KW, "");
 
     try {
@@ -199,24 +138,8 @@ int msiregister_replica(
         return e.code();
     }
 
-    return 0;*/
+    return 0;
 
 }
 
-extern "C"
-irods::ms_table_entry* plugin_factory() {
-    irods::ms_table_entry* msvc = new irods::ms_table_entry(4);
-    msvc->add_operation<
-        msParam_t*,
-        msParam_t*,
-        msParam_t*,
-        msParam_t*,
-        ruleExecInfo_t*>("msiregister_path",
-                         std::function<int(
-                             msParam_t*,
-                             msParam_t*,
-                             msParam_t*,
-                             msParam_t*,
-                             ruleExecInfo_t*)>(msiregister_replica));
-    return msvc;
-}
+
