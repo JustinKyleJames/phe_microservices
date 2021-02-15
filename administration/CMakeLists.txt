@@ -15,9 +15,12 @@ add_compile_options(-Wno-unneeded-internal-declaration) # Until fix of https://g
 
 
 set(
-  IRODS_MICROSERVICE_ADMINISTRATION_PLUGINS
+  PHE_PLUGINS
+  msicheck_ip_in_network
   msiregister_replica
   msiregister_iterator
+  msiget_unixfilesystem_free_space
+  msiset_resource_by_ip
   )
 
 set(IRODS_PLUGIN_REVISION "0")
@@ -25,7 +28,7 @@ set(IRODS_PLUGIN_VERSION "${IRODS_VERSION}.${IRODS_PLUGIN_REVISION}")
 
 message("IRODS_PLUGINS_DIRECTORY is ${IRODS_PLUGINS_DIRECTORY}")
 
-foreach(PLUGIN ${IRODS_MICROSERVICE_ADMINISTRATION_PLUGINS})
+foreach(PLUGIN ${PHE_PLUGINS})
   add_library(
     ${PLUGIN}
     MODULE
@@ -71,7 +74,7 @@ endforeach()
 
 #install(
 #  TARGETS
-#    ${IRODS_MICROSERVICE_ADMINISTRATION_PLUGINS}
+#    ${PHE_PLUGINS}
 #  LIBRARY
 #    DESTINATION ${IRODS_PLUGINS_DIRECTORY}/microservices
 #    COMPONENT ${IRODS_PACKAGE_COMPONENT_SERVER_NAME}
@@ -80,7 +83,7 @@ endforeach()
 
 install(
   TARGETS
-    ${IRODS_MICROSERVICE_ADMINISTRATION_PLUGINS}
+    ${PHE_PLUGINS}
   LIBRARY
      DESTINATION ${IRODS_PLUGINS_DIRECTORY}/microservices
   PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
