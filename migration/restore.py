@@ -18,6 +18,7 @@ def get_metadata_value(session, coll_name, data_name, key):
 
     results = session.query(DataObject, DataObjectMeta).filter( \
             Criterion('=', Collection.name, coll_name)).filter( \
+            Criterion('=', DataObject.name, data_name)).filter( \
             Criterion('=', DataObjectMeta.name, key))
     for r in results:
         return r[DataObjectMeta.value]
@@ -25,17 +26,12 @@ def get_metadata_value(session, coll_name, data_name, key):
 
 def restore_to_lustre(session, coll_name, data_name, restore_location, atime, mtime, owner, perms, group):
 
-    # copy file to lustre
-    obj = session.data_objects.get('%s/%s' % (coll_name, data_name))
-
-    with open(restore_location, 'wb') as lustre_file:
-        with obj.open('r') as irods_file:
-            while True:
-               buf=irods_file.read(1024)
-               if buf:
-                   n=lustre_file.write(buf)
-               else:
-                   break
+    code = os.WEXITSTATUS(os.system("iget -fK %s/%s %s" % (coll_name, data_name, restore_location)))
+    if code != 0:
+        # try again
+        code = os.WEXITSTATUS(os.system("iget -fK %s/%s %s" % (coll_name, data_name, restore_location)))
+        if code != 0:
+            print >> sys.stderr, "Failed twice to get %s/%s" % (coll_name, data_name)
 
     # restore atime
     os.system("touch -a -d '%s' %s" % (atime, restore_location))
@@ -49,7 +45,6 @@ def restore_to_lustre(session, coll_name, data_name, restore_location, atime, mt
     # change access
     os.system("chmod %s %s" % (perms, restore_location))
 
-    print(restore_location)
 
 def do_restore(run_handle):
 
