@@ -4,7 +4,7 @@ from irods_capability_automated_ingest.utils import Operation
 from irods.meta import iRODSMeta
 import subprocess
 import grp
-import os
+import os 
 
 class event_handler(Core):
     @staticmethod
@@ -18,7 +18,7 @@ class event_handler(Core):
         args = ['stat', '--printf', '%04a,%U,%G,%x,%y', meta['path']]
         out, err = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         s = str(out.decode('UTF-8')).split(',')
-
+        
         # if owner or group are unknown, get numeric values
         if s[1] == 'UNKNOWN' or s[2] == 'UNKNOWN':
             args = ['stat', '--printf', '%04a,%u,%g,%x,%y', meta['path']]

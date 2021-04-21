@@ -26,6 +26,18 @@ def get_metadata_value(session, coll_name, data_name, key):
 
 def restore_to_lustre(session, coll_name, data_name, restore_location, atime, mtime, owner, perms, group):
 
+    # copy file to lustre 
+    #obj = session.data_objects.get('%s/%s' % (coll_name, data_name))
+
+    #with open(restore_location, 'wb') as lustre_file:
+    #    with obj.open('r') as irods_file:
+    #        while True:
+    #           buf=irods_file.read(1024)
+    #           if buf: 
+    #               n=lustre_file.write(buf)
+    #           else:
+    #               break
+
     code = os.WEXITSTATUS(os.system("iget -fK %s/%s %s" % (coll_name, data_name, restore_location)))
     if code != 0:
         # try again
@@ -42,10 +54,10 @@ def restore_to_lustre(session, coll_name, data_name, restore_location, atime, mt
     # change owner/group
     os.system("chown %s:%s %s" % (owner, group, restore_location))
 
-    # change access
+    # change access 
     os.system("chmod %s %s" % (perms, restore_location))
 
-
+    
 def do_restore(run_handle):
 
     run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
@@ -78,4 +90,3 @@ if __name__ == "__main__":
         raise ValueError("Use: python restore.py <run handle>")
 
     do_restore(sys.argv[1])
-

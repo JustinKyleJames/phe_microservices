@@ -2,7 +2,9 @@ import sys, os
 from irods.session import iRODSSession
 
 phengs_path_prefix = '/phengs'
+#phengs_path_prefix = '/var/lib/irods/phengs'
 irods_path_prefix = '/PHE/home/ngsservicearchive/archived_files'
+#irods_path_prefix = '/tempZone/home/rods/archived_files'
 
 def build_irods_path(os_path):
     irods_sub_path = ''
@@ -16,7 +18,7 @@ def build_irods_path(os_path):
 def recursively_register(os_path):
 
     irods_path = build_irods_path(os_path)
-
+    
     # run automated ingest
     print("python -m irods_capability_automated_ingest.irods_sync start %s %s --synchronous --progress --event_handler stat_eventhandler" % (os_path, irods_path))
     os.system("python -m irods_capability_automated_ingest.irods_sync start %s %s --synchronous --progress --event_handler stat_eventhandler" % (os_path, irods_path))
@@ -67,11 +69,12 @@ def do_register(run_handle):
     print("find %s -type d -print0 | xargs -0 chmod g+rw" % machine_fastqs_dir_filesystem)
     os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % machine_fastqs_dir_filesystem)
     recursively_replicate_and_trim(machine_fastqs_dir_filesystem, run_handle)
-
+    
 if __name__ == "__main__":
 
     if len(sys.argv) != 2:
         raise ValueError("Use: python register.py <run handle>")
 
     do_register(sys.argv[1])
+
 
