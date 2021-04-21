@@ -38,3 +38,9 @@ Run the restoration process:
 ```
 python restore.py <runid>   # example runid: miseq/M01481/160321_M01481_0183_000000000-ANC58
 ```
+
+Audit the restoration results:
+
+```
+python audit.py <runid>   # example runid: miseq/M01481/160321_M01481_0183_000000000-ANC58
+```
