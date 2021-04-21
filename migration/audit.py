@@ -49,6 +49,6 @@ def do_audit(run_handle):
 if __name__ == "__main__":
 
     if len(sys.argv) != 2:
-        raise ValueError("Use: python restore.py <run handle>")
+        raise ValueError("Use: python audit.py <run handle>")
 
     do_audit(sys.argv[1])
