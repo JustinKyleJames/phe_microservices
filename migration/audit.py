@@ -1,7 +1,19 @@
 import sys, os, datetime
+import os.path
 from irods.session import iRODSSession
 from irods.models import Collection, DataObject, DataObjectMeta
 from irods.column import Criterion
+
+phengs_path_prefix = '/phengs'
+irods_path_prefix = '/PHE/home/ngsservicearchive/archived_files'
+
+def build_irods_path(os_path):
+    irods_sub_path = ''
+    if os_path.startswith(phengs_path_prefix):
+        irods_sub_path = os_path[len(phengs_path_prefix):]
+
+    irods_path = "%s%s" % (irods_path_prefix, irods_sub_path)
+    return irods_path
 
 def get_metadata_value(session, coll_name, data_name, key):
 
@@ -13,7 +25,10 @@ def get_metadata_value(session, coll_name, data_name, key):
         return r[DataObjectMeta.value]
     return ''
 
-def doit(run_handle):
+def do_audit(run_handle):
+
+    run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
+    machine_fastqs_dir_filesystem = "%s/hpc_storage/machine_fastqs/%s" % (phengs_path_prefix, run_handle)
 
     env_file = os.path.expanduser('~/.irods/irods_environment.json')
     with iRODSSession(irods_env_file=env_file) as session:
@@ -25,14 +40,15 @@ def doit(run_handle):
 
         for r in results:
 
-            # get filesystem attributes
             filesystem_path = get_metadata_value(session, r[Collection.name], r[DataObject.name], 'filesystem::path')
-
-            print(r[Collection.name] + '/' + r[DataObject.name], filesystem_path)
+            if not os.path.exists(filesystem_path):
+                print("%s does not exist" % filesystem_path)
+            else:
+                print("%s exists" % filesystem_path)
 
 if __name__ == "__main__":
 
     if len(sys.argv) != 2:
-        raise ValueError("Use: python test.py <run handle>")
+        raise ValueError("Use: python restore.py <run handle>")
 
-    doit(sys.argv[1])
+    do_audit(sys.argv[1])
