@@ -123,6 +123,10 @@ def do_register(run_handle):
     run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
     machine_fastqs_dir_filesystem = "%s/hpc_storage/machine_fastqs/%s" % (phengs_path_prefix, run_handle)
 
+    # remove the restore_from_archive and written_to_archive files, ignore error if they do not exist
+    os.system("rm %s/restore_from_archive 2>/dev/null" % run_data_dir_filesystem)
+    os.system("rm %s/written_to_archive 2>/dev/null" % run_data_dir_filesystem)
+
     recursively_register_and_checksum(run_data_dir_filesystem, checksum_map, run_handle)
     recursively_register_and_checksum(machine_fastqs_dir_filesystem, checksum_map, run_handle)
 
@@ -136,7 +140,7 @@ def do_register(run_handle):
 
             # replicate and trim, first make sure directory has g+rw so trim will work
             print("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
-            #os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
+            os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
 
             recursively_replicate_and_trim(os_path)
 
@@ -198,8 +202,10 @@ def do_register(run_handle):
             if found_file is False:
                 validation_status = False
                 print("ERROR: File %s was not found in archive..." % file_path)
-              
- 
+
+    # create the written_to_archive file
+    os.system("touch %s/written_to_archive" % run_data_dir_filesystem)
+
     if validation_status is False:
         print("ERROR: Post replication validation failed for at least one file.")           
         sys.exit(1)

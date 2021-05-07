@@ -38,6 +38,9 @@ def restore_to_lustre(session, coll_name, data_name, restore_location, atime, mt
     #           else:
     #               break
 
+    # make sure directory exists
+    os.system("mkdir -p %s" % os.path.dirname(restore_location))
+
     code = os.WEXITSTATUS(os.system("iget -fK %s/%s %s" % (coll_name, data_name, restore_location)))
     if code != 0:
         # try again
@@ -83,6 +86,12 @@ def do_restore(run_handle):
 
             print(r[Collection.name], r[DataObject.name], filesystem_path, atime, mtime, owner, perms, group)
             restore_to_lustre(session, r[Collection.name], r[DataObject.name], filesystem_path, atime, mtime, owner, perms, group)
+
+    # create the restore_from_archive file
+    os.system("touch %s/restore_from_archive" % run_data_dir_filesystem)
+
+    # remove the writte_to_archive file, ignore error if it does not exist
+    os.system("rm %s/written_to_archive 2>/dev/null" % run_data_dir_filesystem)
 
 if __name__ == "__main__":
 
