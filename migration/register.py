@@ -113,6 +113,9 @@ def recursively_replicate_and_trim(os_path):
             full_os_path = os.path.join(root, name)
             irods_path = build_irods_path(full_os_path)
 
+            # escape single quote
+            irods_path = irods_path.replace("'", r"\'")
+
             print("""irule -F async_replicate_and_trim.r "*irods_path='%s'" """ % irods_path)
             os.system("""irule -F async_replicate_and_trim.r "*irods_path='%s'" """ % irods_path)
 

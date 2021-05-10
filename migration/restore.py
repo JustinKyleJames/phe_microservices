@@ -39,26 +39,26 @@ def restore_to_lustre(session, coll_name, data_name, restore_location, atime, mt
     #               break
 
     # make sure directory exists
-    os.system("mkdir -p %s" % os.path.dirname(restore_location))
+    os.system('mkdir -p "%s"' % os.path.dirname(restore_location))
 
-    code = os.WEXITSTATUS(os.system("iget -fK %s/%s %s" % (coll_name, data_name, restore_location)))
+    code = os.WEXITSTATUS(os.system('iget -fK "%s/%s" "%s"' % (coll_name, data_name, restore_location)))
     if code != 0:
         # try again
-        code = os.WEXITSTATUS(os.system("iget -fK %s/%s %s" % (coll_name, data_name, restore_location)))
+        code = os.WEXITSTATUS(os.system('iget -fK "%s/%s" "%s"' % (coll_name, data_name, restore_location)))
         if code != 0:
-            print >> sys.stderr, "Failed twice to get %s/%s" % (coll_name, data_name)
+            print >> sys.stderr, 'Failed twice to get "%s/%s"' % (coll_name, data_name)
 
     # restore atime
-    os.system("touch -a -d '%s' %s" % (atime, restore_location))
+    os.system('touch -a -d "%s" "%s"' % (atime, restore_location))
 
     # restore mtime
-    os.system("touch -m -d '%s' %s" % (mtime, restore_location))
+    os.system('touch -m -d "%s" "%s"' % (mtime, restore_location))
 
     # change owner/group
-    os.system("chown %s:%s %s" % (owner, group, restore_location))
+    os.system('chown %s:%s "%s"' % (owner, group, restore_location))
 
     # change access 
-    os.system("chmod %s %s" % (perms, restore_location))
+    os.system('chmod %s "%s"' % (perms, restore_location))
 
     
 def do_restore(run_handle):
