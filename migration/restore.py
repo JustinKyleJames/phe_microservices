@@ -1,6 +1,6 @@
 import sys, os, datetime
 from irods.session import iRODSSession
-from irods.models import Collection, DataObject, DataObjectMeta
+from irods.models import Collection, CollectionMeta, DataObject, DataObjectMeta
 from irods.column import Criterion
 
 phengs_path_prefix = '/phengs'
@@ -14,7 +14,7 @@ def build_irods_path(os_path):
     irods_path = "%s%s" % (irods_path_prefix, irods_sub_path)
     return irods_path
 
-def get_metadata_value(session, coll_name, data_name, key):
+def get_metadata_value_for_data_object(session, coll_name, data_name, key):
 
     results = session.query(DataObject, DataObjectMeta).filter( \
             Criterion('=', Collection.name, coll_name)).filter( \
@@ -24,41 +24,58 @@ def get_metadata_value(session, coll_name, data_name, key):
         return r[DataObjectMeta.value]
     return ''
 
+def get_metadata_value_for_collection(session, coll_name, key):
+
+    results = session.query(Collection, CollectionMeta).filter( \
+            Criterion('=', Collection.name, coll_name)).filter( \
+            Criterion('=', CollectionMeta.name, key))
+    for r in results:
+        return r[CollectionMeta.value]
+    return ''
+
 def restore_to_lustre(session, coll_name, data_name, restore_location, atime, mtime, owner, perms, group):
 
-    # copy file to lustre 
-    #obj = session.data_objects.get('%s/%s' % (coll_name, data_name))
+    if data_name is None:
 
-    #with open(restore_location, 'wb') as lustre_file:
-    #    with obj.open('r') as irods_file:
-    #        while True:
-    #           buf=irods_file.read(1024)
-    #           if buf: 
-    #               n=lustre_file.write(buf)
-    #           else:
-    #               break
+        # restoring directory metadata
 
-    # make sure directory exists
-    os.system('mkdir -p "%s"' % os.path.dirname(restore_location))
+        # restore atime
+        os.system('touch -a -d "%s" "%s"' % (atime, restore_location))
 
-    code = os.WEXITSTATUS(os.system('iget -fK "%s/%s" "%s"' % (coll_name, data_name, restore_location)))
-    if code != 0:
-        # try again
+        # restore mtime
+        os.system('touch -m -d "%s" "%s"' % (mtime, restore_location))
+
+        # change owner/group
+        os.system('chown %s:%s "%s"' % (owner, group, restore_location))
+
+        # change access 
+        os.system('chmod %s "%s"' % (perms, restore_location))
+
+    else:
+
+        # create directory if it doesn't exist
+        os.system('mkdir -p "%s"' % os.path.dirname(restore_location))
+
+        # restoring file
+
         code = os.WEXITSTATUS(os.system('iget -fK "%s/%s" "%s"' % (coll_name, data_name, restore_location)))
         if code != 0:
-            print >> sys.stderr, 'Failed twice to get "%s/%s"' % (coll_name, data_name)
+            # try again
+            code = os.WEXITSTATUS(os.system('iget -fK "%s/%s" "%s"' % (coll_name, data_name, restore_location)))
+            if code != 0:
+                print >> sys.stderr, 'Failed twice to get "%s/%s"' % (coll_name, data_name)
 
-    # restore atime
-    os.system('touch -a -d "%s" "%s"' % (atime, restore_location))
+        # restore atime
+        os.system('touch -a -d "%s" "%s"' % (atime, restore_location))
 
-    # restore mtime
-    os.system('touch -m -d "%s" "%s"' % (mtime, restore_location))
+        # restore mtime
+        os.system('touch -m -d "%s" "%s"' % (mtime, restore_location))
 
-    # change owner/group
-    os.system('chown %s:%s "%s"' % (owner, group, restore_location))
+        # change owner/group
+        os.system('chown %s:%s "%s"' % (owner, group, restore_location))
 
-    # change access 
-    os.system('chmod %s "%s"' % (perms, restore_location))
+        # change access 
+        os.system('chmod %s "%s"' % (perms, restore_location))
 
     
 def do_restore(run_handle):
@@ -69,6 +86,8 @@ def do_restore(run_handle):
     env_file = os.path.expanduser('~/.irods/irods_environment.json')
     with iRODSSession(irods_env_file=env_file) as session:
 
+        # Restore files
+ 
         # select COLL_NAME, DATA_NAME where META_DATA_ATTR_NAME = 'filesystem::run_handle' and META_DATA_ATTR_VALUE = <run_handle>
         results = session.query(Collection.name, DataObject).filter( \
                 Criterion('=', DataObjectMeta.name, 'filesystem::run_handle')).filter( \
@@ -77,15 +96,36 @@ def do_restore(run_handle):
         for r in results:
 
             # get filesystem attributes
-            filesystem_path = get_metadata_value(session, r[Collection.name], r[DataObject.name], 'filesystem::path')
-            atime = get_metadata_value(session, r[Collection.name], r[DataObject.name], 'filesystem::atime')
-            mtime = get_metadata_value(session, r[Collection.name], r[DataObject.name], 'filesystem::mtime')
-            owner = get_metadata_value(session, r[Collection.name], r[DataObject.name], 'filesystem::owner')
-            perms = get_metadata_value(session, r[Collection.name], r[DataObject.name], 'filesystem::perms')
-            group = get_metadata_value(session, r[Collection.name], r[DataObject.name], 'filesystem::group')
+            filesystem_path = get_metadata_value_for_data_object(session, r[Collection.name], r[DataObject.name], 'filesystem::path')
+            atime = get_metadata_value_for_data_object(session, r[Collection.name], r[DataObject.name], 'filesystem::atime')
+            mtime = get_metadata_value_for_data_object(session, r[Collection.name], r[DataObject.name], 'filesystem::mtime')
+            owner = get_metadata_value_for_data_object(session, r[Collection.name], r[DataObject.name], 'filesystem::owner')
+            perms = get_metadata_value_for_data_object(session, r[Collection.name], r[DataObject.name], 'filesystem::perms')
+            group = get_metadata_value_for_data_object(session, r[Collection.name], r[DataObject.name], 'filesystem::group')
 
             print(r[Collection.name], r[DataObject.name], filesystem_path, atime, mtime, owner, perms, group)
             restore_to_lustre(session, r[Collection.name], r[DataObject.name], filesystem_path, atime, mtime, owner, perms, group)
+
+
+        # Restore directory metadata 
+
+        # select COLL_NAME where META_COLL_ATTR_NAME = 'filesystem::run_handle' and META_COLL_ATTR_VALUE = <run_handle>
+        results = session.query(Collection, CollectionMeta).filter( \
+                Criterion('=', CollectionMeta.name, 'filesystem::run_handle')).filter( \
+                Criterion('=', CollectionMeta.value, run_handle))
+
+        for r in results:
+
+            # get filesystem attributes
+            filesystem_path = get_metadata_value_for_collection(session, r[Collection.name], 'filesystem::path')
+            atime = get_metadata_value_for_collection(session, r[Collection.name], 'filesystem::atime')
+            mtime = get_metadata_value_for_collection(session, r[Collection.name], 'filesystem::mtime')
+            owner = get_metadata_value_for_collection(session, r[Collection.name], 'filesystem::owner')
+            perms = get_metadata_value_for_collection(session, r[Collection.name], 'filesystem::perms')
+            group = get_metadata_value_for_collection(session, r[Collection.name], 'filesystem::group')
+
+            print(r[Collection.name],  filesystem_path, atime, mtime, owner, perms, group)
+            restore_to_lustre(session, r[Collection.name], None,filesystem_path, atime, mtime, owner, perms, group)
 
     # create the restore_from_archive file
     os.system("touch %s/restore_from_archive" % run_data_dir_filesystem)

@@ -23,6 +23,55 @@ def build_irods_path(os_path):
     irods_path = "%s%s" % (irods_path_prefix, irods_sub_path)
     return irods_path
 
+def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file):
+
+        irods_path = build_irods_path(os_path)
+
+        # add metadata on the directory for restoration
+        args = ['stat', '--printf', '%04a,%U,%G,%x,%y', os_path]
+        out, err = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+        s = str(out.decode('UTF-8')).split(',')
+        
+        # if owner or group are unknown, get numeric values
+        if s[1] == 'UNKNOWN' or s[2] == 'UNKNOWN':
+            args = ['stat', '--printf', '%04a,%u,%g,%x,%y', os_path]
+            out, err = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
+            s = str(out.decode('UTF-8')).split(',')
+
+        if is_file:
+            obj = session.data_objects.get(irods_path)
+        else:
+            obj = session.collections.get(irods_path)
+
+        try: 
+            obj.metadata.add("filesystem::run_handle", run_handle, '')
+        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+            pass
+        try: 
+            obj.metadata.add("filesystem::perms", s[0], '')
+        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+            pass
+        try: 
+            obj.metadata.add("filesystem::owner", s[1], '')
+        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+            pass
+        try: 
+            obj.metadata.add("filesystem::group", s[2], '')
+        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+            pass
+        try: 
+            obj.metadata.add("filesystem::atime", s[3], '')
+        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+            pass
+        try: 
+            obj.metadata.add("filesystem::mtime", s[4], '')
+        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+            pass
+        try: 
+            obj.metadata.add("filesystem::path", os_path, '')
+        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+            pass
+
             
 def recursively_register_and_checksum(os_path, checksum_map, run_handle):
 
@@ -42,7 +91,11 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle):
         print('recursively registering %s as %s' % (os_path, irods_collection_path))
         session.data_objects.register(os_path, irods_collection_path, **options)
 
+        # read and store metadata for the root of the tree
+        read_path_metadata_store_to_irods(os_path, session, run_handle, False)
+
         for subdir, dirs, files in os.walk(os_path):
+
             for file in files:
 
                 # calculate a checksum and store in dictionary with file as key
@@ -60,48 +113,13 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle):
 
                 checksum_map[filepath] = sha256.hexdigest()
 
-                # add metadata on the file for restoration
-                args = ['stat', '--printf', '%04a,%U,%G,%x,%y', filepath]
-                out, err = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-                s = str(out.decode('UTF-8')).split(',')
-                
-                # if owner or group are unknown, get numeric values
-                if s[1] == 'UNKNOWN' or s[2] == 'UNKNOWN':
-                    args = ['stat', '--printf', '%04a,%u,%g,%x,%y', filepath]
-                    out, err = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-                    s = str(out.decode('UTF-8')).split(',')
+                read_path_metadata_store_to_irods(filepath, session, run_handle, True)
 
-                #print(s, file=open('/tmp/debug', 'a'))
+            for dir in dirs:
 
-                obj = session.data_objects.get(irods_path)
-                try: 
-                    obj.metadata.add("filesystem::run_handle", run_handle, '')
-                except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-                    pass
-                try: 
-                    obj.metadata.add("filesystem::perms", s[0], '')
-                except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-                    pass
-                try: 
-                    obj.metadata.add("filesystem::owner", s[1], '')
-                except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-                    pass
-                try: 
-                    obj.metadata.add("filesystem::group", s[2], '')
-                except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-                    pass
-                try: 
-                    obj.metadata.add("filesystem::atime", s[3], '')
-                except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-                    pass
-                try: 
-                    obj.metadata.add("filesystem::mtime", s[4], '')
-                except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-                    pass
-                try: 
-                    obj.metadata.add("filesystem::path", filepath, '')
-                except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-                    pass
+                dirpath = os.path.join(subdir, dir)
+                irods_path = build_irods_path(dirpath)
+                read_path_metadata_store_to_irods(dirpath, session, run_handle, False)
 
 
 def recursively_replicate_and_trim(os_path):
