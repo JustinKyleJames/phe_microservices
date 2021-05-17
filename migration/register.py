@@ -75,6 +75,10 @@ def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file):
             
 def recursively_register_and_checksum(os_path, checksum_map, run_handle):
 
+    if not os.path.isdir(os_path):
+        print('WARNING: Could not register path %s.  Path is missing from source.' % os_path)
+        return
+        
     env_file = os.path.expanduser('~/.irods/irods_environment.json')
     with iRODSSession(irods_env_file=env_file) as session:
 
@@ -89,7 +93,12 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle):
         # recursively register the directory
         options = {kw.VERIFY_CHKSUM_KW: '', kw.DEST_RESC_NAME_KW: staging_resource, kw.COLLECTION_KW: ''}
         print('recursively registering %s as %s' % (os_path, irods_collection_path))
-        session.data_objects.register(os_path, irods_collection_path, **options)
+
+        try:
+            session.data_objects.register(os_path, irods_collection_path, **options)
+        except:
+            print('WARNING: Error when registering path %s.  Path will be skipped.' % os_path)
+            return
 
         # read and store metadata for the root of the tree
         read_path_metadata_store_to_irods(os_path, session, run_handle, False)
@@ -154,16 +163,19 @@ def do_register(run_handle):
     # open results_ngssample_dirs and register directories in it
     results_file = "%s/results_ngssample_dirs" % run_data_dir_filesystem
 
-    with open(results_file) as f:
-        for line in f:
-            os_path = line.strip()
-            recursively_register_and_checksum(os_path, checksum_map, run_handle)
+    try:
+        with open(results_file) as f:
+            for line in f:
+                os_path = line.strip()
+                recursively_register_and_checksum(os_path, checksum_map, run_handle)
 
-            # replicate and trim, first make sure directory has g+rw so trim will work
-            print("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
-            os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
+                # replicate and trim, first make sure directory has g+rw so trim will work
+                print("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
+                os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
 
-            recursively_replicate_and_trim(os_path)
+                recursively_replicate_and_trim(os_path)
+    except IOError as e:
+        print('WARNING:  No results_ngssample_dirs file found.')
 
     # replicate and trim run_data, first make sure directory has g+rw so trim will work
     print("find %s -type d -print0 | xargs -0 chmod g+rw" % run_data_dir_filesystem)
