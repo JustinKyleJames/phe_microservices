@@ -13,6 +13,26 @@ irods_path_prefix = '/PHE/home/ngsservicearchive/archived_files'
 #irods_path_prefix = '/tempZone/home/rods/archived_files'
 staging_resource = 'lustre_staging_resc'
 
+
+repl_trim_rule_text = """
+    delay("<PLUSET>1s</PLUSET>") {
+        # Run Handle: XXX 
+        writeLine("stdout", "replicating *irods_path")
+        # replicate and trim
+        *err = errormsg(msiDataObjRepl("*irods_path", "rescName=lustre_staging_resc++++destRescName=s3_resc++++irodsAdmin=++++verifyChksum=",*out), *msg)
+        if (*err != 0) {
+            writeLine("serverLog", "repl failed for *irods_path")
+            failmsg(*err, *msg)
+        } else {
+            *err = errormsg(msiDataObjTrim("*irods_path", "lustre_staging_resc", "null", "1", "ADMIN", *out), *msg)
+            if (*err != 0) {
+                writeLine("serverLog", "trim failed for *irods_path")
+                failmsg(*err, *msg)
+            }
+        }
+    }
+"""
+
 BUF_SIZE = 65536
 
 def build_irods_path(os_path):
@@ -73,11 +93,15 @@ def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file):
             pass
 
             
-def recursively_register_and_checksum(os_path, checksum_map, run_handle):
+def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file):
 
     if not os.path.isdir(os_path):
         print('WARNING: Could not register path %s.  Path is missing from source.' % os_path)
+        error_file.write('WARNING: Could not register path %s.  Path is missing from source.\n' % os_path)
         return
+
+    # make sure directory has g+rw so register and trim will work
+    os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
         
     env_file = os.path.expanduser('~/.irods/irods_environment.json')
     with iRODSSession(irods_env_file=env_file) as session:
@@ -98,6 +122,7 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle):
             session.data_objects.register(os_path, irods_collection_path, **options)
         except:
             print('WARNING: Error when registering path %s.  Path will be skipped.' % os_path)
+            error_file.write('WARNING: Error when registering path %s.  Path will be skipped.\n' % os_path)
             return
 
         # read and store metadata for the root of the tree
@@ -105,11 +130,20 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle):
 
         for subdir, dirs, files in os.walk(os_path):
 
-            for file in files:
+            for fname in files:
 
                 # calculate a checksum and store in dictionary with file as key
-                filepath = os.path.join(subdir, file)
+                filepath = os.path.join(subdir, fname)
                 irods_path = build_irods_path(filepath)
+
+                # unregister and skip core files
+                if fname == 'core':
+                    try:
+                        session.data_objects.unregister(irods_path)
+                    except:
+                        # if unregister fails just do nothing as it probably wasn't registered
+                        pass
+                    continue
 
                 sha256 = hashlib.sha256()
                 
@@ -124,126 +158,136 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle):
 
                 read_path_metadata_store_to_irods(filepath, session, run_handle, True)
 
-            for dir in dirs:
+            for dirname in dirs:
 
-                dirpath = os.path.join(subdir, dir)
+                dirpath = os.path.join(subdir, dirname)
                 irods_path = build_irods_path(dirpath)
                 read_path_metadata_store_to_irods(dirpath, session, run_handle, False)
 
 
-def recursively_replicate_and_trim(os_path):
+def recursively_replicate_and_trim(os_path, run_handle):
 
-    for root, dirs, files in os.walk(os_path):
+    env_file = os.path.expanduser('~/.irods/irods_environment.json')
+    with iRODSSession(irods_env_file=env_file) as session:
 
-        for name in files:
+        for root, dirs, files in os.walk(os_path):
 
-            full_os_path = os.path.join(root, name)
-            irods_path = build_irods_path(full_os_path)
+            for fname in files:
 
-            # escape single quote
-            irods_path = irods_path.replace("'", r"\'")
+                full_os_path = os.path.join(root, fname)
+                irods_path = build_irods_path(full_os_path)
 
-            print("""irule -F async_replicate_and_trim.r "*irods_path='%s'" """ % irods_path)
-            os.system("""irule -F async_replicate_and_trim.r "*irods_path='%s'" """ % irods_path)
+                # skip core files
+                if fname == 'core':
+                    continue
+
+                # escape single quote
+                irods_path = irods_path.replace("'", r"\'")
+
+                os.system("irule '%s' '*irods_path=%s' ruleExecOut" % (repl_trim_rule_text.replace('XXX', run_handle), irods_path))
 
 def do_register(run_handle):
 
-    checksum_map = {}
+    error_file = '%s_errors.log' % run_handle
+    error_file = error_file.replace('/', '_')
+    with open(error_file, 'w') as error_file:
 
-    run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
-    machine_fastqs_dir_filesystem = "%s/hpc_storage/machine_fastqs/%s" % (phengs_path_prefix, run_handle)
+        checksum_map = {}
 
-    # remove the restore_from_archive and written_to_archive files, ignore error if they do not exist
-    os.system("rm %s/restore_from_archive 2>/dev/null" % run_data_dir_filesystem)
-    os.system("rm %s/written_to_archive 2>/dev/null" % run_data_dir_filesystem)
+        run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
+        machine_fastqs_dir_filesystem = "%s/hpc_storage/machine_fastqs/%s" % (phengs_path_prefix, run_handle)
 
-    recursively_register_and_checksum(run_data_dir_filesystem, checksum_map, run_handle)
-    recursively_register_and_checksum(machine_fastqs_dir_filesystem, checksum_map, run_handle)
+        # remove the restore_from_archive and written_to_archive files, ignore error if they do not exist
+        os.system("rm %s/restore_from_archive 2>/dev/null" % run_data_dir_filesystem)
+        os.system("rm %s/written_to_archive 2>/dev/null" % run_data_dir_filesystem)
 
-    # open results_ngssample_dirs and register directories in it
-    results_file = "%s/results_ngssample_dirs" % run_data_dir_filesystem
+        recursively_register_and_checksum(run_data_dir_filesystem, checksum_map, run_handle, error_file)
+        recursively_register_and_checksum(machine_fastqs_dir_filesystem, checksum_map, run_handle, error_file)
 
-    try:
-        with open(results_file) as f:
-            for line in f:
-                os_path = line.strip()
-                recursively_register_and_checksum(os_path, checksum_map, run_handle)
+        # open results_ngssample_dirs and register directories in it
+        results_file = "%s/results_ngssample_dirs" % run_data_dir_filesystem
 
-                # replicate and trim, first make sure directory has g+rw so trim will work
-                print("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
-                os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % os_path)
+        try:
+            with open(results_file) as f:
+                for line in f:
+                    os_path = line.strip()
 
-                recursively_replicate_and_trim(os_path)
-    except IOError as e:
-        print('WARNING:  No results_ngssample_dirs file found.')
+                    # register
+                    recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file)
 
-    # replicate and trim run_data, first make sure directory has g+rw so trim will work
-    print("find %s -type d -print0 | xargs -0 chmod g+rw" % run_data_dir_filesystem)
-    os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % run_data_dir_filesystem)
-    recursively_replicate_and_trim(run_data_dir_filesystem)
+                    # replicate and trim
+                    recursively_replicate_and_trim(os_path, run_handle)
+        except IOError as e:
+            print('WARNING:  No results_ngssample_dirs file found.')
+            error_file.write('WARNING:  No results_ngssample_dirs file found.\n')
 
-    # replicate and trim fastqs, first make sure directory has g+rw so trim will work
-    print("find %s -type d -print0 | xargs -0 chmod g+rw" % machine_fastqs_dir_filesystem)
-    os.system("find %s -type d -print0 | xargs -0 chmod g+rw" % machine_fastqs_dir_filesystem)
-    recursively_replicate_and_trim(machine_fastqs_dir_filesystem)
+        # replicate and trim run_data
+        recursively_replicate_and_trim(run_data_dir_filesystem, run_handle)
 
-    # do post verification
+        # replicate and trim fastqs
+        recursively_replicate_and_trim(machine_fastqs_dir_filesystem, run_handle)
 
-    # wait for all rules to complete
-    active_rules = int(subprocess.check_output(['iquest', '%s', "select COUNT(RULE_EXEC_ID) where RULE_EXEC_USER_NAME = 'ngsservicearchive'"]).strip())
-    while active_rules > 0:
-        print("Waiting for replication jobs to complete.  Job count = %d" % active_rules)
-        time.sleep(5)
-        active_rules = int(subprocess.check_output(['iquest', '%s', "select COUNT(RULE_EXEC_ID) where RULE_EXEC_USER_NAME = 'ngsservicearchive'"]).strip())
+        # do post verification
 
-    print("Replication jobs completed...")
+        # wait for all rules to complete
+        active_rules = int(subprocess.check_output(['iquest', '%s', "select COUNT(RULE_EXEC_ID) where RULE_EXEC_USER_NAME = 'ngsservicearchive' and RULE_EXEC_NAME like '%{run_handle}%'".format(**locals())]).strip())
+        while active_rules > 0:
+            print("Waiting for replication jobs to complete.  Job count = %d" % active_rules)
+            time.sleep(5)
+            active_rules = int(subprocess.check_output(['iquest', '%s', "select COUNT(RULE_EXEC_ID) where RULE_EXEC_USER_NAME = 'ngsservicearchive' and RULE_EXEC_NAME like '%{run_handle}%'".format(**locals())]).strip())
 
-    # now compare checksum with those in checksum_map
-    print("-------------------")
-    print("Validating files...")
-    print("-------------------")
-    env_file = os.path.expanduser('~/.irods/irods_environment.json')
+        print("Replication jobs completed...")
 
-    validation_status = True
+        # now compare checksum with those in checksum_map
+        print("-------------------")
+        print("Validating files...")
+        print("-------------------")
+        env_file = os.path.expanduser('~/.irods/irods_environment.json')
 
-    with iRODSSession(irods_env_file=env_file) as session:
+        validation_status = True
 
-        for file_path in checksum_map:
+        with iRODSSession(irods_env_file=env_file) as session:
 
-            # find object in iRODS and get checksum
-            # select COLL_NAME, DATA_NAME where META_DATA_ATTR_NAME = 'filesystem::path' and META_DATA_ATTR_VALUE = <file_path>
+            for file_path in checksum_map:
 
-            found_file = False
-            results = session.query(Collection.name, DataObject, Resource.name).filter( \
-                    Criterion('=', DataObjectMeta.name, 'filesystem::path')).filter( \
-                    Criterion('=', DataObjectMeta.value, file_path)).filter( \
-                    Criterion('=', Resource.name, 's3_resc'))
+                # find object in iRODS and get checksum
+                # select COLL_NAME, DATA_NAME where META_DATA_ATTR_NAME = 'filesystem::path' and META_DATA_ATTR_VALUE = <file_path>
+
+                found_file = False
+                results = session.query(Collection.name, DataObject, Resource.name).filter( \
+                        Criterion('=', DataObjectMeta.name, 'filesystem::path')).filter( \
+                        Criterion('=', DataObjectMeta.value, file_path)).filter( \
+                        Criterion('=', Resource.name, 's3_resc'))
 
 
-            for result in results:
+                for result in results:
 
-                found_file = True
+                    found_file = True
 
-                stored_checksum = "".join("%02x" % b for b in bytearray(base64.b64decode(result[DataObject.checksum][5:])))
+                    stored_checksum = "".join("%02x" % b for b in bytearray(base64.b64decode(result[DataObject.checksum][5:])))
 
-                if checksum_map[file_path] == stored_checksum:
-                    print("Checksum validated for %s" % file_path)
-                else:
+                    if checksum_map[file_path] == stored_checksum:
+                        pass
+                        #print("Checksum validated for %s" % file_path)
+                    else:
+                        validation_status = False
+                        print("ERROR:  Checksum validation failed for %s: %s vs %s" % (file_path, checksum_map[file_path], stored_checksum))
+                        error_file.write("ERROR:  Checksum validation failed for %s: %s vs %s\n" % (file_path, checksum_map[file_path], stored_checksum))
+
+                if found_file is False:
                     validation_status = False
-                    print("ERROR:  Checksum validation failed for %s: %s vs %s" % (file_path, checksum_map[file_path], stored_checksum))
+                    print("ERROR: File %s was not found in archive..." % file_path)
+                    error_file.write("ERROR: File %s was not found in archive...\n" % file_path)
 
-            if found_file is False:
-                validation_status = False
-                print("ERROR: File %s was not found in archive..." % file_path)
+        # create the written_to_archive file
+        os.system("touch %s/written_to_archive" % run_data_dir_filesystem)
 
-    # create the written_to_archive file
-    os.system("touch %s/written_to_archive" % run_data_dir_filesystem)
-
-    if validation_status is False:
-        print("ERROR: Post replication validation failed for at least one file.")           
-        sys.exit(1)
-    else:
-        print("Post replication validation succeeded.")           
+        if validation_status is False:
+            print("ERROR: Post replication validation failed for at least one file.")           
+            error_file.write("ERROR: Post replication validation failed for at least one file.\n")           
+            sys.exit(1)
+        else:
+            print("Post replication validation succeeded.")           
 
     
 if __name__ == "__main__":
