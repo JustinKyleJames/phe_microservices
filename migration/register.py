@@ -181,10 +181,9 @@ def recursively_replicate_and_trim(os_path, run_handle):
                 if fname == 'core':
                     continue
 
-                # escape single quote
-                irods_path = irods_path.replace("'", r"\'")
+                rule_text = repl_trim_rule_text.replace('XXX', run_handle)
 
-                os.system("irule '%s' '*irods_path=%s' ruleExecOut" % (repl_trim_rule_text.replace('XXX', run_handle), irods_path))
+                os.system("""irule '{rule_text}' "*irods_path={irods_path}" ruleExecOut""".format(**locals()))
 
 def do_register(run_handle):
 
