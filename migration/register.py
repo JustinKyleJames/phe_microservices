@@ -1,4 +1,4 @@
-import sys, os, time, hashlib, subprocess, base64
+import sys, os, time, hashlib, subprocess, base64, re
 from irods.session import iRODSSession
 from irods.models import Collection, DataObject, DataObjectMeta, Resource
 from irods.column import Criterion
@@ -43,7 +43,7 @@ def build_irods_path(os_path):
     irods_path = "%s%s" % (irods_path_prefix, irods_sub_path)
     return irods_path
 
-def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file):
+def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file, error_file):
 
         irods_path = build_irods_path(os_path)
 
@@ -58,40 +58,44 @@ def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file):
             out, err = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
             s = str(out.decode('UTF-8')).split(',')
 
-        if is_file:
-            obj = session.data_objects.get(irods_path)
-        else:
-            obj = session.collections.get(irods_path)
+        try:
+            if is_file:
+                obj = session.data_objects.get(irods_path)
+            else:
+                obj = session.collections.get(irods_path)
 
-        try: 
-            obj.metadata.add("filesystem::run_handle", run_handle, '')
-        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-            pass
-        try: 
-            obj.metadata.add("filesystem::perms", s[0], '')
-        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-            pass
-        try: 
-            obj.metadata.add("filesystem::owner", s[1], '')
-        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-            pass
-        try: 
-            obj.metadata.add("filesystem::group", s[2], '')
-        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-            pass
-        try: 
-            obj.metadata.add("filesystem::atime", s[3], '')
-        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-            pass
-        try: 
-            obj.metadata.add("filesystem::mtime", s[4], '')
-        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-            pass
-        try: 
-            obj.metadata.add("filesystem::path", os_path, '')
-        except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
-            pass
+            try: 
+                obj.metadata.add("filesystem::run_handle", run_handle, '')
+            except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+                pass
+            try: 
+                obj.metadata.add("filesystem::perms", s[0], '')
+            except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+                pass
+            try: 
+                obj.metadata.add("filesystem::owner", s[1], '')
+            except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+                pass
+            try: 
+                obj.metadata.add("filesystem::group", s[2], '')
+            except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+                pass
+            try: 
+                obj.metadata.add("filesystem::atime", s[3], '')
+            except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+                pass
+            try: 
+                obj.metadata.add("filesystem::mtime", s[4], '')
+            except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+                pass
+            try: 
+                obj.metadata.add("filesystem::path", os_path, '')
+            except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
+                pass
 
+        except:
+            print('WARNING: Path %s not registered in iRODS.  Skipping.' % irods_path)
+            error_file.write('WARNING: Path %s not registered in iRODS.  Skipping.' % irods_path)
             
 def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file):
 
@@ -126,7 +130,7 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_f
             return
 
         # read and store metadata for the root of the tree
-        read_path_metadata_store_to_irods(os_path, session, run_handle, False)
+        read_path_metadata_store_to_irods(os_path, session, run_handle, False, error_file)
 
         for subdir, dirs, files in os.walk(os_path):
 
@@ -137,7 +141,7 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_f
                 irods_path = build_irods_path(filepath)
 
                 # unregister and skip core files
-                if fname == 'core':
+                if re.match(r'^core$|^core.[0-9]+$', fname):
                     try:
                         session.data_objects.unregister(irods_path)
                     except:
@@ -156,13 +160,13 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_f
 
                 checksum_map[filepath] = sha256.hexdigest()
 
-                read_path_metadata_store_to_irods(filepath, session, run_handle, True)
+                read_path_metadata_store_to_irods(filepath, session, run_handle, True, error_file)
 
             for dirname in dirs:
 
                 dirpath = os.path.join(subdir, dirname)
                 irods_path = build_irods_path(dirpath)
-                read_path_metadata_store_to_irods(dirpath, session, run_handle, False)
+                read_path_metadata_store_to_irods(dirpath, session, run_handle, False, error_file)
 
 
 def recursively_replicate_and_trim(os_path, run_handle):
