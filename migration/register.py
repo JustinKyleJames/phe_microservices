@@ -1,10 +1,11 @@
-import sys, os, time, hashlib, subprocess, base64, re
+import sys, os, time, hashlib, subprocess, base64, re, glob, argparse
 from irods.session import iRODSSession
 from irods.models import Collection, DataObject, DataObjectMeta, Resource
 from irods.column import Criterion
 from irods.meta import iRODSMeta
 from irods.exception import CollectionDoesNotExist
 from irods.exception import CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME 
+from enum import Enum
 import irods.keywords as kw
 
 phengs_path_prefix = '/phengs'
@@ -12,6 +13,11 @@ phengs_path_prefix = '/phengs'
 irods_path_prefix = '/PHE/home/ngsservicearchive/archived_files'
 #irods_path_prefix = '/tempZone/home/rods/archived_files'
 staging_resource = 'lustre_staging_resc'
+
+class OperationalMode(Enum):
+    LEGACY = 1
+    FTP_ONLY = 2
+    BOTH = 3
 
 
 repl_trim_rule_text = """
@@ -32,6 +38,18 @@ repl_trim_rule_text = """
         }
     }
 """
+repl_only_rule_text = """
+    delay("<PLUSET>1s</PLUSET>") {
+        # Run Handle: XXX 
+        writeLine("stdout", "replicating *irods_path")
+        # replicate
+        *err = errormsg(msiDataObjRepl("*irods_path", "rescName=lustre_staging_resc++++destRescName=s3_resc++++irodsAdmin=++++verifyChksum=",*out), *msg)
+        if (*err != 0) {
+            writeLine("serverLog", "repl failed for *irods_path")
+            failmsg(*err, *msg)
+        }
+    }
+"""
 
 BUF_SIZE = 65536
 
@@ -43,7 +61,7 @@ def build_irods_path(os_path):
     irods_path = "%s%s" % (irods_path_prefix, irods_sub_path)
     return irods_path
 
-def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file, error_file):
+def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file, error_file, ftp_root_files):
 
         irods_path = build_irods_path(os_path)
 
@@ -65,7 +83,10 @@ def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file, err
                 obj = session.collections.get(irods_path)
 
             try: 
-                obj.metadata.add("filesystem::run_handle", run_handle, '')
+                if ftp_root_files:
+                    obj.metadata.add("filesystem::ftp_root::run_handle", run_handle, '')
+                else:
+                    obj.metadata.add("filesystem::run_handle", run_handle, '')
             except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
                 pass
             try: 
@@ -97,7 +118,7 @@ def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file, err
             print('WARNING: Path %s not registered in iRODS.  Skipping.' % irods_path)
             error_file.write('WARNING: Path %s not registered in iRODS.  Skipping.' % irods_path)
             
-def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file):
+def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file, ftp_root_files = False):
 
     if not os.path.isdir(os_path):
         print('WARNING: Could not register path %s.  Path is missing from source.' % os_path)
@@ -130,7 +151,7 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_f
             return
 
         # read and store metadata for the root of the tree
-        read_path_metadata_store_to_irods(os_path, session, run_handle, False, error_file)
+        read_path_metadata_store_to_irods(os_path, session, run_handle, False, error_file, ftp_root_files)
 
         for subdir, dirs, files in os.walk(os_path):
 
@@ -160,16 +181,16 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_f
 
                 checksum_map[filepath] = sha256.hexdigest()
 
-                read_path_metadata_store_to_irods(filepath, session, run_handle, True, error_file)
+                read_path_metadata_store_to_irods(filepath, session, run_handle, True, error_file, ftp_root_files)
 
             for dirname in dirs:
 
                 dirpath = os.path.join(subdir, dirname)
                 irods_path = build_irods_path(dirpath)
-                read_path_metadata_store_to_irods(dirpath, session, run_handle, False, error_file)
+                read_path_metadata_store_to_irods(dirpath, session, run_handle, False, error_file, ftp_root_files)
 
 
-def recursively_replicate_and_trim(os_path, run_handle):
+def recursively_replicate_and_trim(os_path, run_handle, ftp_root_files = False):
 
     env_file = os.path.expanduser('~/.irods/irods_environment.json')
     with iRODSSession(irods_env_file=env_file) as session:
@@ -185,11 +206,14 @@ def recursively_replicate_and_trim(os_path, run_handle):
                 if fname == 'core':
                     continue
 
-                rule_text = repl_trim_rule_text.replace('XXX', run_handle)
+                if ftp_root_files:
+                    rule_text = repl_only_rule_text.replace('XXX', run_handle)
+                else:
+                    rule_text = repl_trim_rule_text.replace('XXX', run_handle)
 
                 os.system("""irule '{rule_text}' "*irods_path={irods_path}" ruleExecOut""".format(**locals()))
 
-def do_register(run_handle):
+def do_register(run_handle, operational_mode):
 
     error_file = '%s_errors.log' % run_handle
     error_file = error_file.replace('/', '_')
@@ -197,38 +221,50 @@ def do_register(run_handle):
 
         checksum_map = {}
 
-        run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
-        machine_fastqs_dir_filesystem = "%s/hpc_storage/machine_fastqs/%s" % (phengs_path_prefix, run_handle)
+        if operational_mode is OperationalMode.FTP_ONLY or operational_mode is OperationalMode.BOTH:
 
-        # remove the restore_from_archive and written_to_archive files, ignore error if they do not exist
-        os.system("rm %s/restore_from_archive 2>/dev/null" % run_data_dir_filesystem)
-        os.system("rm %s/written_to_archive 2>/dev/null" % run_data_dir_filesystem)
+            ftp_root_dirs = glob.glob('%s/hpc_storage/ftp_root/*/*/%s' % (phengs_path_prefix, run_handle))
+            for ftp_root_dir in ftp_root_dirs:
+                recursively_register_and_checksum(ftp_root_dir, checksum_map, run_handle, error_file, True)
+                recursively_replicate_and_trim(ftp_root_dir, run_handle, True)                          # replicate without trim 
 
-        recursively_register_and_checksum(run_data_dir_filesystem, checksum_map, run_handle, error_file)
-        recursively_register_and_checksum(machine_fastqs_dir_filesystem, checksum_map, run_handle, error_file)
+        if operational_mode is OperationalMode.LEGACY or operational_mode is OperationalMode.BOTH:
 
-        # open results_ngssample_dirs and register directories in it
-        results_file = "%s/results_ngssample_dirs" % run_data_dir_filesystem
+            run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
+            machine_fastqs_dir_filesystem = "%s/hpc_storage/machine_fastqs/%s" % (phengs_path_prefix, run_handle)
 
-        try:
-            with open(results_file) as f:
-                for line in f:
-                    os_path = line.strip()
+            # remove the restore_from_archive and written_to_archive files, ignore error if they do not exist
+            os.system("rm %s/restore_from_archive 2>/dev/null" % run_data_dir_filesystem)
+            os.system("rm %s/written_to_archive 2>/dev/null" % run_data_dir_filesystem)
 
-                    # register
-                    recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file)
+            recursively_register_and_checksum(run_data_dir_filesystem, checksum_map, run_handle, error_file)
+            recursively_register_and_checksum(machine_fastqs_dir_filesystem, checksum_map, run_handle, error_file)
 
-                    # replicate and trim
-                    recursively_replicate_and_trim(os_path, run_handle)
-        except IOError as e:
-            print('WARNING:  No results_ngssample_dirs file found.')
-            error_file.write('WARNING:  No results_ngssample_dirs file found.\n')
+            # open results_ngssample_dirs and register directories in it
+            results_file = "%s/results_ngssample_dirs" % run_data_dir_filesystem
 
-        # replicate and trim run_data
-        recursively_replicate_and_trim(run_data_dir_filesystem, run_handle)
+            try:
+                with open(results_file) as f:
+                    for line in f:
+                        os_path = line.strip()
 
-        # replicate and trim fastqs
-        recursively_replicate_and_trim(machine_fastqs_dir_filesystem, run_handle)
+                        # register
+                        recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file)
+
+                        # replicate and trim
+                        recursively_replicate_and_trim(os_path, run_handle)
+            except IOError as e:
+                print('WARNING:  No results_ngssample_dirs file found.')
+                error_file.write('WARNING:  No results_ngssample_dirs file found.\n')
+
+            # replicate and trim run_data
+            recursively_replicate_and_trim(run_data_dir_filesystem, run_handle)
+
+            # replicate and trim fastqs
+            recursively_replicate_and_trim(machine_fastqs_dir_filesystem, run_handle)
+
+            # create the written_to_archive file
+            os.system("touch %s/written_to_archive" % run_data_dir_filesystem)
 
         # do post verification
 
@@ -282,9 +318,6 @@ def do_register(run_handle):
                     print("ERROR: File %s was not found in archive..." % file_path)
                     error_file.write("ERROR: File %s was not found in archive...\n" % file_path)
 
-        # create the written_to_archive file
-        os.system("touch %s/written_to_archive" % run_data_dir_filesystem)
-
         if validation_status is False:
             print("ERROR: Post replication validation failed for at least one file.")           
             error_file.write("ERROR: Post replication validation failed for at least one file.\n")           
@@ -295,9 +328,22 @@ def do_register(run_handle):
     
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        raise ValueError("Use: python register.py <run handle>")
 
-    do_register(sys.argv[1])
+    parser = argparse.ArgumentParser(description='Register files into iRODS, replicate to archive, and optionally trim original files.')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--ftp-only', action='store_true', help='only archive the ftp_root directory')
+    group.add_argument('--exclude-ftp', action='store_true', help='only archive and trim the run_data and machine_fastqs directories, as well as directories listed in the run_data/results_ngssample_dirs file')
+    group.add_argument('--both', action='store_true', help='(default) archive ftp_root and archive and trim the run_data and machine_fastqs directories')
+    parser.add_argument('run_handle', help='the run handle')
+    
+    args = parser.parse_args()
 
+    operational_mode = OperationalMode.BOTH
+    if args.both:
+        operational_mode = OperationalMode.BOTH
+    elif args.ftp_only:
+        operational_mode = OperationalMode.FTP_ONLY
+    elif args.exclude_ftp:
+        operational_mode = OperationalMode.LEGACY # run_data and machine_fastqs
 
+    do_register(args.run_handle, operational_mode)
