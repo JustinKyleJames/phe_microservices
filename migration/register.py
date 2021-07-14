@@ -1,4 +1,4 @@
-import sys, os, time, hashlib, subprocess, base64, re, glob, argparse
+import sys, os, time, hashlib, subprocess, base64, re, glob, argparse, textwrap
 from irods.session import iRODSSession
 from irods.models import Collection, DataObject, DataObjectMeta, Resource
 from irods.column import Criterion
@@ -228,6 +228,10 @@ def do_register(run_handle, operational_mode):
                 recursively_register_and_checksum(ftp_root_dir, checksum_map, run_handle, error_file, True)
                 recursively_replicate_and_trim(ftp_root_dir, run_handle, True)                          # replicate without trim 
 
+                # create the ftp_root_backed_up file
+                os.system("touch %s/ftp_root_backed_up" % ftp_root_dir)
+
+
         if operational_mode is OperationalMode.LEGACY or operational_mode is OperationalMode.BOTH:
 
             run_data_dir_filesystem = "%s/hpc_storage/run_data/%s" % (phengs_path_prefix, run_handle)
@@ -329,21 +333,27 @@ def do_register(run_handle, operational_mode):
 if __name__ == "__main__":
 
 
-    parser = argparse.ArgumentParser(description='Register files into iRODS, replicate to archive, and optionally trim original files.')
+    parser = argparse.ArgumentParser(description=textwrap.dedent("""Register files into iRODS, replicate to archive, and
+                                                             optionally trim original files.
+
+                                                             The default behavior is to archive ftp_root;
+                                                             archive and trim the run_data, machine_fastqs and 
+                                                             results directories"""))
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('--ftp-only', action='store_true', help='only archive the ftp_root directory')
-    group.add_argument('--exclude-ftp', action='store_true', help='only archive and trim the run_data and machine_fastqs directories, as well as directories listed in the run_data/results_ngssample_dirs file')
-    group.add_argument('--both', action='store_true', help='(default) archive ftp_root and archive and trim the run_data and machine_fastqs directories')
+    group.add_argument('--ftp-only', action='store_const', help='archive only the ftp_root directory', dest='option', const='ftp_only')
+    group.add_argument('--exclude-ftp', action='store_const', help='archive and trim the run_data, machine_fastqs and result directories', dest='option', const='exclude_ftp')
+    #group.add_argument('--both', action='store_true', help='archive ftp_root; archive and trim the run_data, machine_fastqs and results directories')
     parser.add_argument('run_handle', help='the run handle')
     
     args = parser.parse_args()
 
     operational_mode = OperationalMode.BOTH
-    if args.both:
-        operational_mode = OperationalMode.BOTH
-    elif args.ftp_only:
+    if args.option == 'ftp_only':
         operational_mode = OperationalMode.FTP_ONLY
-    elif args.exclude_ftp:
+    elif args.option == 'exclude_ftp':
         operational_mode = OperationalMode.LEGACY # run_data and machine_fastqs
+
+    #print(args.option)
+    #print(operational_mode)
 
     do_register(args.run_handle, operational_mode)
