@@ -114,9 +114,9 @@ def read_path_metadata_store_to_irods(os_path, session, run_handle, is_file, err
             except CATALOG_ALREADY_HAS_ITEM_BY_THAT_NAME:
                 pass
 
-        except:
-            print('WARNING: Path %s not registered in iRODS.  Skipping.' % irods_path)
-            error_file.write('WARNING: Path %s not registered in iRODS.  Skipping.' % irods_path)
+        except Exception as e:
+            print('WARNING: Path %s not registered in iRODS.  Skipping.  Exception: %s' % (irods_path, str(e)))
+            error_file.write('WARNING: Path %s not registered in iRODS.  Skipping.  Exception: %s\n' % (irods_path, str(e)))
             
 def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_file, ftp_root_files = False):
 
@@ -145,9 +145,9 @@ def recursively_register_and_checksum(os_path, checksum_map, run_handle, error_f
 
         try:
             session.data_objects.register(os_path, irods_collection_path, **options)
-        except:
-            print('WARNING: Error when registering path %s.  Path will be skipped.' % os_path)
-            error_file.write('WARNING: Error when registering path %s.  Path will be skipped.\n' % os_path)
+        except Exception as e:
+            print('WARNING: Error when registering path %s.  Path will be skipped. Exception: %s' % (os_path, str(e)))
+            error_file.write('WARNING: Error when registering path %s.  Path will be skipped.  Exception: %s\n' % (os_path, str(e)))
             return
 
         # read and store metadata for the root of the tree
