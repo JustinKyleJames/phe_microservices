@@ -59,6 +59,9 @@ include(${IRODS_TARGETS_PATH})
 include(GNUInstallDirs)
 include(UseLibCXX)
 
+find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto SSL)
+find_package(nlohmann_json "3.6.1" REQUIRED)
 
 set(
   PHE_PLUGINS
