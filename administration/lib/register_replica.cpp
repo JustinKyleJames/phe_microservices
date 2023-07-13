@@ -11,6 +11,8 @@
 #include "irods_hierarchy_parser.hpp"
 #include "rsRegReplica.hpp"
 
+#define IRODS_QUERY_ENABLE_SERVER_SIDE_API
+
 #define RODS_SERVER
 #include "irods_query.hpp"
 #include "query_builder.hpp"
